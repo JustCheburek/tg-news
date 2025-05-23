@@ -1,8 +1,9 @@
-use sqlx::{Pool, Postgres};
+use sea_orm::{Database, DatabaseConnection};
 use std::env;
 
-pub async fn establish_connection() -> Result<Pool<Postgres>, Box<dyn std::error::Error>> {
-    let database_url = env::var("DATABASE_URL").map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
-    let pool = Pool::<Postgres>::connect(&database_url).await?;
-    Ok(pool)
+pub async fn establish_connection() -> Result<DatabaseConnection, sea_orm::DbErr> {
+    let database_url = env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be set in .env");
+    let db = Database::connect(&database_url).await?;
+    Ok(db)
 }
