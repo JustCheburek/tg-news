@@ -9,7 +9,7 @@ export const api = axios.create({
 })
 
 // Добавляем интерцептор для обработки ошибок
-/*api.interceptors.response.use(
+api.interceptors.response.use(
     (response) => response,
     (error) => {
       if (error.code === "ECONNABORTED") {
@@ -23,7 +23,7 @@ export const api = axios.create({
       }
       return Promise.reject(error)
     },
-)*/
+)
 
 // Добавляем интерцептор для логирования запросов в development
 if (process.env.NODE_ENV === "development") {
