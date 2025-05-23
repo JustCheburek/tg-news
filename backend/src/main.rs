@@ -21,10 +21,10 @@ async fn main() {
     dotenv().ok();
 
     let bot_token = std::env::var("TG_BOT_TOKEN")
-        .expect("MAILCOACH_API_TOKEN must be set.")
+        .expect("TG_BOT_TOKEN must be set.")
         .to_string();
     let channel_id: String = std::env::var("TG_CHAT_ID")
-        .expect("MAILCOACH_API_TOKEN must be set.")
+        .expect("TG_CHAT_ID must be set.")
         .to_string();
     let bot = Bot::new(bot_token);
 
