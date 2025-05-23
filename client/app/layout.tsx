@@ -13,11 +13,12 @@ export const metadata: Metadata = {
 	description: "Лента экономических новостей из Telegram-каналов",
 }
 
-export default function RootLayout({
-	                                   children,
-                                   }: Readonly<{
-	children: React.ReactNode
-}>) {
+export default function RootLayout(
+		{
+			children,
+		}: Readonly<{
+			children: React.ReactNode
+		}>) {
 	return (
 			<html lang="ru">
 			<body className={inter.className} suppressHydrationWarning>

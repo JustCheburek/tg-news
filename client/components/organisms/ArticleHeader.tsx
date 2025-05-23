@@ -16,7 +16,7 @@ export default function ArticleHeader({ title, lead, date, readTime, image }: Ar
       <Heading1>{title}</Heading1>
       <Lead>{lead}</Lead>
       <IconCalendar date={date} readTime={readTime} />
-      <div className="relative aspect-video w-full overflow-hidden rounded-2xl">
+      <div className="relative aspect-video w-full md:w-[70%] overflow-hidden rounded-2xl">
         <Image
           src={image || "/placeholder.svg"}
           alt={title}
