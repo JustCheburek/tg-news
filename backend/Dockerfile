@@ -1,30 +1,43 @@
-# Use the official Rust image as the base
+# Build stage
 FROM rust:1.71 as builder
 
-# Set the working directory inside the container
+# Install sea-orm-cli
+RUN cargo install sea-orm-cli
+
+# Set working directory
 WORKDIR /usr/src/app
 
-# Copy the Cargo.toml and Cargo.lock files to the container
+# Copy Cargo files
 COPY Cargo.toml Cargo.lock ./
 
-# Create a new empty shell project to cache dependencies
+# Cache dependencies
+RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN cargo build --release
-RUN rm src/*.rs
+RUN rm -rf src
 
-# Copy the source code to the container
+# Copy source code and migrations
 COPY src ./src
+COPY migrations ./migrations
 
-# Build the actual application
+# Remove redundant SQL file
+RUN rm -f src/create_seen_posts.sql
+
+# Build the application
 RUN cargo build --release
 
-# Use a smaller image for the final executable
+# Final stage
 FROM debian:buster-slim
 
-# Set the working directory
+# Install libpq for PostgreSQL client
+RUN apt-get update && apt-get install -y libpq-dev && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
 WORKDIR /usr/local/bin
 
-# Copy the compiled binary from the builder stage
+# Copy the compiled binary, migrations, and sea-orm-cli
 COPY --from=builder /usr/src/app/target/release/tech-chronicle-bot .
+COPY --from=builder /usr/src/app/migrations ./migrations
+COPY --from=builder /root/.cargo/bin/sea-orm-cli /usr/local/bin/sea-orm-cli
 
-# Set the entry point for the container
-ENTRYPOINT ["./tech-chronicle-bot"]
+# Run migrations and start the application
+CMD sea-orm-cli migrate -d ./migrations && ./tech-chronicle-bot
