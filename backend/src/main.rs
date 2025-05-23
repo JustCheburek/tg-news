@@ -1,23 +1,24 @@
 mod db;
 mod models;
+mod server;
 
 use crate::db::establish_connection;
+use crate::server::run_server;
+use crate::models::{Entity as SeenPosts, ActiveModel as SeenPostsActiveModel, Column};
 
-use std::{collections::HashSet, error::Error, fs, time::Duration};
-
+use std::{collections::HashSet, error::Error, fs, time::Duration, sync::Arc};
 use dotenv::dotenv;
 use opml::{Outline, OPML};
-use rand::prelude::SliceRandom;
+use rand::prelude::*;
 use reqwest;
 use rss::Channel;
 use teloxide::{prelude::*, types::ParseMode};
 use tokio::time::sleep;
-
 use chatgpt::{prelude::ChatGPT, types::CompletionResponse};
-use sqlx;
+use sea_orm::{EntityTrait, QueryFilter, ColumnTrait, ActiveModelTrait, Set};
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
 
     let bot_token = std::env::var("TG_BOT_TOKEN")
@@ -28,34 +29,40 @@ async fn main() {
         .to_string();
     let bot = Bot::new(bot_token);
 
-    // Path to the OPML file containing RSS feed URLs
+    let db = Arc::new(establish_connection().await?);
+
     let opml_file_path = "feeds.opml";
     let rss_urls =
         load_rss_urls_from_opml(opml_file_path).expect("Failed to load RSS URLs from OPML");
 
-    // Keep track of seen items to avoid reposting
-    let seen_urls: HashSet<String> = HashSet::new();
+    let _seen_urls: HashSet<String> = HashSet::new();
 
-    loop {
-        if let Some(rss_feed_url) = rss_urls.choose(&mut rand::thread_rng()) {
-            if let Err(err) = fetch_and_send_rss_updates(&bot, channel_id.clone(), rss_feed_url) //&mut seen_urls
-                .await
-            {
-                eprintln!("Error fetching or sending updates: {:?}", err);
+    let mut rng = StdRng::seed_from_u64(42);
+    let db_clone = db.clone();
+    let rss_task = tokio::spawn(async move {
+        loop {
+            if let Some(rss_feed_url) = rss_urls.choose(&mut rng) {
+                if let Err(err) = fetch_and_send_rss_updates(&bot, channel_id.clone(), rss_feed_url, &db_clone)
+                    .await
+                {
+                    eprintln!("Error fetching or sending updates: {:?}", err);
+                }
             }
+            sleep(Duration::from_secs(600)).await;
         }
+    });
 
-        // Wait 10 minutes before checking again
-        sleep(Duration::from_secs(6)).await;
-    }
+    let server_task = tokio::spawn(run_server(db));
+
+    tokio::try_join!(rss_task, server_task)?;
+
+    Ok(())
 }
 
-// Main function to load RSS URLs from an OPML file
 fn load_rss_urls_from_opml(opml_file_path: &str) -> Result<Vec<String>, Box<dyn Error>> {
     let opml_content = fs::read_to_string(opml_file_path)?;
     let opml = OPML::from_str(&opml_content)?;
 
-    // Use the recursive function to gather all RSS URLs
     let mut rss_urls = Vec::new();
     extract_urls_from_outline(&opml.body.outlines, &mut rss_urls);
 
@@ -67,7 +74,6 @@ async fn chatgpt(url: String) -> Result<String, Box<dyn std::error::Error>> {
     let key = std::env::var("OPENAI")?;
     let client = ChatGPT::new(key)?;
 
-    // Sending a message and getting the completion
     let response: CompletionResponse = client
         .send_message(format!("дай описание этой новости в пределах 400 символов: {}", url))
         .await?;
@@ -77,25 +83,26 @@ async fn chatgpt(url: String) -> Result<String, Box<dyn std::error::Error>> {
     Ok(response.message().content.clone())
 }
 
-// Recursive function to traverse nested outlines and collect xmlUrl attributes
 fn extract_urls_from_outline(outlines: &[Outline], rss_urls: &mut Vec<String>) {
     for outline in outlines {
         if let Some(xml_url) = &outline.xml_url {
             rss_urls.push(xml_url.clone());
         }
 
-        // If there are nested outlines, recurse into them
         if !outline.outlines.is_empty() {
             extract_urls_from_outline(&outline.outlines, rss_urls);
         }
     }
 }
 
-async fn insert_seen_post(pool: &sqlx::PgPool, link: &str) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT INTO seen_posts (link) VALUES ($1)")
-        .bind(link)
-        .execute(pool)
-        .await?;
+async fn insert_seen_post(db: &sea_orm::DatabaseConnection, link: &str, title: &str, description: &str) -> Result<(), sea_orm::DbErr> {
+    let post = SeenPostsActiveModel {
+        link: Set(link.to_string()),
+        title: Set(Some(title.to_string())),
+        description: Set(Some(description.to_string())),
+        ..Default::default()
+    };
+    post.insert(db).await?;
     Ok(())
 }
 
@@ -103,59 +110,41 @@ async fn fetch_and_send_rss_updates(
     bot: &Bot,
     channel_id: String,
     rss_feed_url: &str,
+    db: &sea_orm::DatabaseConnection,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Fetch the RSS feed
     let content = reqwest::get(rss_feed_url).await?.bytes().await?;
     let channel = Channel::read_from(&content[..])?;
 
-    // Establish a connection to the database
-    let pool = establish_connection().await?;
-
     for item in channel.items() {
         if let Some(item_link) = item.link() {
-            // Check if the link exists in the database
-            let exists: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM seen_posts WHERE link = $1")
-                .bind(item_link)
-                .fetch_one(&pool)
+            let exists = SeenPosts::find()
+                .filter(Column::Link.eq(item_link))
+                .one(db)
                 .await?;
 
-            if exists.0 == 0 {
-                // Insert the new seen post
-                sqlx::query("INSERT INTO seen_posts (link) VALUES ($1)")
-                    .bind(item_link)
-                    .execute(&pool)
-                    .await?;
-
+            if exists.is_none() {
                 let link1 = item_link.to_string();
                 let title = item.title().unwrap_or("No Title").to_string();
                 let caption = "<a href=\"https://t.me/Tech_Chronicle/\">Tech Chronicle</a>";
-                let content: Option<&str> = item.content();
+                let _content: Option<&str> = item.content();
+                let description = chatgpt(link1.clone()).await?;
 
-                // Format the message with content if available
-                // let message = if let Some(text) = content {
-                //     let text = chatgpt(text.to_string()).await?;
-                //     text
-                // } else {
-                //     "no text".to_string()
-                // };
-                let message = chatgpt(link1.clone()).await?;
+                insert_seen_post(db, &link1, &title, &description).await?;
 
-                // Send the message to the Telegram channel
                 bot.send_message(
                     channel_id.clone(),
                     format!(
                         "<b># {}</b> | <a href=\"{}\">источник</a>\n\n{}\n\n{}",
-                        title, link1.clone(), message, caption,
+                        title, link1, description, caption,
                     ),
                 )
                 .parse_mode(ParseMode::Html)
                 .send()
                 .await?;
 
-                // Delay for 15 minutes before sending the next message
-                sleep(Duration::from_secs(5)).await;
+                sleep(Duration::from_secs(900)).await;
 
-                break; // Stop after sending 1 element from one RSS URL
+                break;
             }
         }
     }
