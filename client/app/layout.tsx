@@ -20,11 +20,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ru">
-      <body className={inter.className}>
+      <body className={inter.className} suppressHydrationWarning>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
           <div className="flex min-h-screen flex-col">
             <Header />
-            <div className="flex-1">{children}</div>
+            <div className="flex-1 bg-secondary">{children}</div>
             <Footer />
           </div>
         </ThemeProvider>
