@@ -60,7 +60,7 @@ export default function SidebarWithCurrencies() {
             <SidebarGroupLabel>Курс валют</SidebarGroupLabel>
             <SidebarGroupContent>
               <Card className="border-none shadow-none">
-                <CardContent className="p-2">
+                <CardContent className="p-2">ё
                   <div className="space-y-3">
                     {currencies.map((currency) => (
                       <div key={currency.name} className="flex items-center justify-between">

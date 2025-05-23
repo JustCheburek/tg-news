@@ -32,7 +32,7 @@ export default function NewsFeed() {
 
   return (
     <div className="space-y-8">
-      <h1 className="text-3xl font-bold">Последние новости</h1>
+      <h1 className="text-3xl font-bold">Новости экономики</h1>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {articles.length > 0 ? (

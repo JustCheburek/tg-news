@@ -31,7 +31,7 @@ export function useNews(page: number) {
         setData(response.data)
         setError(null)
       } catch (err) {
-        setError(err as Error)
+        //setError(err as Error)
 
         // Фейковые данные для демонстрации
         if (page === 1) {

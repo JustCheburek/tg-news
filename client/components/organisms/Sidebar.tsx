@@ -42,7 +42,7 @@ export default function Sidebar() {
   }
 
   return (
-    <div className="sticky top-8 space-y-6">
+    <div className="sticky top-20 space-y-6">
       <CurrencyTicker currencies={currencies} />
     </div>
   )
