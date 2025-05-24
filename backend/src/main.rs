@@ -11,7 +11,7 @@ use opml::{OPML, Outline};
 use rand::prelude::*;
 use reqwest;
 use chrono::{DateTime, Utc};
-// use chatgpt::{prelude::ChatGPT, types::CompletionResponse};
+use chatgpt::{prelude::ChatGPT, types::CompletionResponse};
 use tokio::time::sleep;
 use log::{error, info};
 
@@ -66,7 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .app_data(web::Data::new(app_state.clone())) // Store AppState in app state
             .service(get_all_posts)
     })
-				.bind("127.0.0.1:8080")?
+				.bind("127.0.0.1:8081")?
 				.run();
 
     let server_task = tokio::spawn(server);
@@ -103,6 +103,7 @@ fn extract_urls_from_outline(outlines: &[Outline], rss_urls: &mut Vec<String>) {
 //     let prompt_template = std::env::var("CHATGPT_PROMPT")
 //         .unwrap_or("дай описание этой новости в пределах 400 символов: {}".to_string());
 //     let client = ChatGPT::new(key)?;
+		
 //     let response: CompletionResponse = client
 //         .send_message(format!("{}", prompt_template.replace("{}", &url)))
 //         .await?;
@@ -139,7 +140,7 @@ async fn fetch_and_store_rss_updates(
                 let link = item_link.to_string();
                 let title = item.title().unwrap_or("No Title").to_string();
                 // let description = chatgpt(link.clone()).await?;
-								let description = "123";
+								let description = format!("{}", link.clone());
                 insert_seen_post(db, &link, &title, &description).await?;
                 sleep(Duration::from_secs(30)).await;
             }
@@ -155,18 +156,16 @@ async fn get_all_posts(
 ) -> impl Responder {
     match models::Entity::find()
         .order_by_desc(models::Column::CreatedAt)
-        .all(state.db.as_ref()) // Dereference Arc to get &DatabaseConnection
+        .all(state.db.as_ref())
         .await
     {
         Ok(posts) => {
-            let formatted_posts: Vec<String> = posts.into_iter().map(|post| {
-                let title = post.title.unwrap_or_else(|| "No Title".to_string());
-                let description = post.description.unwrap_or_else(|| "No description available".to_string());
-                let caption = "<a href=\"https://t.me/Tech_Chronicle/\">Tech Chronicle</a>";
-                format!(
-                    "<b># {}</b> | <a href=\"{}\">источник</a>\n\n{}\n\n{}",
-                    title, post.link, description, caption
-                )
+            let formatted_posts: Vec<Post> = posts.into_iter().map(|post| Post {
+                id: post.id,
+                link: post.link,
+                title: post.title,
+                description: post.description,
+                created_at: post.created_at,
             }).collect();
             HttpResponse::Ok().json(formatted_posts)
         }
