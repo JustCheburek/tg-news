@@ -1,16 +1,14 @@
 "use client"
 
-import {useEffect, useState} from "react"
-import {api} from "@/lib/api"
+import { useState, useEffect } from "react"
+import { api } from "@/lib/api"
 
 interface Article {
-	id: string
+	id: number
+	link: string
 	title: string
-	lead: string
-	content: string
-	date: string
-	readTime: number
-	image: string
+	description: string
+	created_at: string
 }
 
 export function useNewsById(id: string) {
@@ -21,29 +19,38 @@ export function useNewsById(id: string) {
 	useEffect(() => {
 		const fetchArticle = async () => {
 			setIsLoading(true)
-
-			/*if (id === "1") {
-				setData({
-					id: "1",
-					title: "Глобальные рынки растут на фоне сигналов о снижении ставок центробанками",
-					lead: "Основные индексы в Азии, Европе и США выросли сегодня, поскольку центральные банки намекнули на возможное снижение процентных ставок в ближайшие месяцы.",
-					content:
-							'Финансовые рынки по всему миру испытали значительный рост сегодня, поскольку несколько центральных банков сигнализировали о потенциальном изменении денежно-кредитной политики. Федеральная резервная система, Европейский центральный банк и Банк Японии указали, что снижение процентных ставок может быть на горизонте, поскольку инфляционное давление ослабевает.\n\nИнвесторы положительно отреагировали на новости: индекс S&P 500 вырос на 2,3%, а индекс Nasdaq Composite подскочил на 3,1%. Европейские рынки последовали этому примеру: индекс Stoxx Europe 600 прибавил 1,8%.\n\nАналитики отмечают, что рынки уже начали учитывать в ценах потенциальное снижение ставок, что объясняет сильный рост акций, особенно в технологическом секторе, который особенно чувствителен к изменениям процентных ставок.\n\n"Мы видим явный сдвиг в риторике центральных банков, что дает инвесторам уверенность в том, что цикл повышения ставок подходит к концу", - сказал Алексей Петров, главный экономист инвестиционного банка "Капитал".\n\nОднако некоторые эксперты предупреждают о преждевременном оптимизме, отмечая, что инфляция все еще остается выше целевых показателей центральных банков, и что геополитические риски могут быстро изменить экономические перспективы.',
-					date: "23 мая 2025",
-					readTime: 5,
-					image: "/placeholder.svg?height=600&width=1200",
-				})
-			}
-
-			setIsLoading(false)*/
-
 			try {
-				const response = await api.get(`/posts/${id}`)
-
+				const response = await api.get(`/news/${id}`)
 				setData(response.data)
 				setError(null)
 			} catch (err) {
 				setError(err as Error)
+
+				// Фейковые данные для демонстрации
+				const mockArticles = [
+					{
+						id: 5,
+						link: "https://devby.io/news/garvard-bolshe-ne-mozhet-prinimat-inostrannyh-studentov",
+						title:
+								"Гарвард больше не может принимать иностранных студентов, а уже учащиеся должны перевестись. Беларусы там тоже есть",
+						description:
+								"Университет объявил о временном прекращении приема иностранных студентов из-за новых федеральных ограничений. Решение затронет тысячи студентов по всему миру, включая граждан Беларуси.",
+						created_at: "2025-05-24T01:40:48.592547Z",
+					},
+					{
+						id: 4,
+						link: "https://devby.io/news/ceo-airbnb-obyasnil-chem-horosho-nachinat-biznes-kogda-v-ekonomike-vsyo-ploho",
+						title: "CEO Airbnb объяснил, чем хорошо начинать бизнес, когда в экономике всё плохо",
+						description:
+								"Глава компании поделился опытом создания стартапа во время экономического кризиса 2008 года и объяснил, почему сложные времена могут стать лучшим моментом для запуска нового бизнеса.",
+						created_at: "2025-05-24T01:40:18.518144Z",
+					},
+				]
+
+				const article = mockArticles.find((a) => a.id === Number.parseInt(id))
+				if (article) {
+					setData(article)
+				}
 			} finally {
 				setIsLoading(false)
 			}
@@ -54,5 +61,5 @@ export function useNewsById(id: string) {
 		}
 	}, [id])
 
-	return {data, isLoading, error}
+	return { data, isLoading, error }
 }
