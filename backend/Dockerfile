@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.71 as builder
+FROM rust:1.81 as builder
 
 # Install sea-orm-cli
 RUN cargo install sea-orm-cli

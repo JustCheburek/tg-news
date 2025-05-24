@@ -3,15 +3,23 @@ mod models;
 
 use actix_web::{get, web, App, HttpServer, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
-use sea_orm::{DatabaseConnection, EntityTrait, QueryOrder, PaginatorTrait, ActiveModelTrait, Set, ColumnTrait, QueryFilter};
+use sea_orm::{DatabaseConnection, EntityTrait, QueryOrder, ActiveModelTrait, Set, ColumnTrait, QueryFilter};
 use std::{error::Error, fs, sync::Arc, time::Duration};
 use dotenv::dotenv;
+use env_logger;
 use opml::{OPML, Outline};
 use rand::prelude::*;
 use reqwest;
 use chrono::{DateTime, Utc};
-use chatgpt::{prelude::ChatGPT, types::CompletionResponse};
+// use chatgpt::{prelude::ChatGPT, types::CompletionResponse};
 use tokio::time::sleep;
+use log::{error, info};
+
+// Struct to hold application state
+#[derive(Clone)]
+struct AppState {
+    db: Arc<DatabaseConnection>,
+}
 
 #[derive(Serialize)]
 struct Post {
@@ -31,37 +39,42 @@ struct Pagination {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
+    env_logger::init();
 
+    // Create the database connection and wrap it in AppState
     let db = Arc::new(db::establish_connection().await?);
+    let app_state = AppState { db };
+
     let opml_file_path = "feeds.opml";
-    let rss_urls = load_rss_urls_from_opml(opml_file_path).expect("Failed to load RSS URLs from OPML");
+    let rss_urls = load_rss_urls_from_opml(opml_file_path)?;
 
     let mut rng = StdRng::seed_from_u64(42);
-    let db_clone = db.clone();
+    let db_clone = app_state.db.clone();
     let rss_task = tokio::spawn(async move {
         loop {
             if let Some(rss_feed_url) = rss_urls.choose(&mut rng) {
                 if let Err(err) = fetch_and_store_rss_updates(rss_feed_url, &db_clone).await {
-										// FIXME: replace println! with logging library
-                    eprintln!("Error fetching or storing updates: {:?}", err);
+                    error!("Error fetching or storing updates: {:?}", err);
                 }
             }
             sleep(Duration::from_secs(600)).await;
         }
     });
 
-    let server_task = tokio::spawn(async move {
-        HttpServer::new(move || {
-            App::new()
-                .app_data(web::Data::new(db.clone()))
-                .service(get_all_posts)
-        })
-        .bind("127.0.0.1:8080")?
-        .run()
-        .await
-    });
+    let server = HttpServer::new(move || {
+        App::new()
+            .app_data(web::Data::new(app_state.clone())) // Store AppState in app state
+            .service(get_all_posts)
+    })
+				.bind("127.0.0.1:8080")?
+				.run();
 
-    tokio::try_join!(rss_task, server_task.unwrap())?;
+    let server_task = tokio::spawn(server);
+
+    // Run both tasks and handle server result only
+    let (_, server_result) = tokio::try_join!(rss_task, server_task)?;
+    server_result?;
+
     Ok(())
 }
 
@@ -70,10 +83,7 @@ fn load_rss_urls_from_opml(opml_file_path: &str) -> Result<Vec<String>, Box<dyn 
     let opml = OPML::from_str(&opml_content)?;
     let mut rss_urls = Vec::new();
     extract_urls_from_outline(&opml.body.outlines, &mut rss_urls);
-
-		// FIXME: replace println! with logging library
-		println!("Your RSS URLs: {:#?}", rss_urls);
-
+    info!("Loaded RSS URLs: {:?}", rss_urls);
     Ok(rss_urls)
 }
 
@@ -88,21 +98,17 @@ fn extract_urls_from_outline(outlines: &[Outline], rss_urls: &mut Vec<String>) {
     }
 }
 
-async fn chatgpt(url: String) -> Result<String, Box<dyn std::error::Error>> {
-    let key = std::env::var("OPENAI")?;
-    let client = ChatGPT::new(key)?;
-		// TODO: Add catching prompt from .env
-		// Something like format!({}, {}) and then response.send_message(prompt)
-		let _prompt; 
-		
-    let response: CompletionResponse = client
-        .send_message(format!("дай описание этой новости в пределах 400 символов: {}", url))
-        .await?;
-
-		// FIXME: replace println! with logging library
-		println!("Response: {}", &response.message().content);
-    Ok(response.message().content.clone())
-}
+// async fn chatgpt(url: String) -> Result<String, Box<dyn std::error::Error>> {
+//     let key = std::env::var("OPENAI").map_err(|_| "OPENAI environment variable not set")?;
+//     let prompt_template = std::env::var("CHATGPT_PROMPT")
+//         .unwrap_or("дай описание этой новости в пределах 400 символов: {}".to_string());
+//     let client = ChatGPT::new(key)?;
+//     let response: CompletionResponse = client
+//         .send_message(format!("{}", prompt_template.replace("{}", &url)))
+//         .await?;
+//     info!("ChatGPT response for URL {}: {}", url, &response.message().content);
+//     Ok(response.message().content.clone())
+// }
 
 async fn insert_seen_post(db: &DatabaseConnection, link: &str, title: &str, description: &str) -> Result<(), sea_orm::DbErr> {
     let post = models::ActiveModel {
@@ -132,10 +138,10 @@ async fn fetch_and_store_rss_updates(
             if exists.is_none() {
                 let link = item_link.to_string();
                 let title = item.title().unwrap_or("No Title").to_string();
-                let description = chatgpt(link.clone()).await?;
+                // let description = chatgpt(link.clone()).await?;
+								let description = "123";
                 insert_seen_post(db, &link, &title, &description).await?;
-                sleep(Duration::from_secs(900)).await;
-                break;
+                sleep(Duration::from_secs(std::env::var("PARSING_INTERVAL_SECS").unwrap_or(900))).await;
             }
         }
     }
@@ -144,17 +150,13 @@ async fn fetch_and_store_rss_updates(
 
 #[get("/posts")]
 async fn get_all_posts(
-    db: web::Data<Arc<DatabaseConnection>>,
-    query: web::Query<Pagination>,
+    state: web::Data<AppState>,
+    _query: web::Query<Pagination>,
 ) -> impl Responder {
-    let page = query.page.unwrap_or(1).max(1) as u64;
-    let per_page = query.per_page.unwrap_or(10).clamp(1, 100) as u64;
-
     match models::Entity::find()
         .order_by_desc(models::Column::CreatedAt)
-        // .paginate(&*db, per_page)
-        // .fetch_page(page - 1)
-        // .await
+        .all(state.db.as_ref()) // Dereference Arc to get &DatabaseConnection
+        .await
     {
         Ok(posts) => {
             let formatted_posts: Vec<String> = posts.into_iter().map(|post| {
@@ -169,8 +171,7 @@ async fn get_all_posts(
             HttpResponse::Ok().json(formatted_posts)
         }
         Err(e) => {
-						// FIXME: replace println! with logging library
-						eprintln!("Error fetching posts: {:?}", e);
+            error!("Error fetching posts: {:?}", e);
             HttpResponse::InternalServerError().json("Failed to fetch posts")
         }
     }

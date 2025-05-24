@@ -1,9 +1,9 @@
-use sea_orm::{Database, DatabaseConnection};
+use sea_orm::{Database, DatabaseConnection, DbErr};
 use std::env;
 
-pub async fn establish_connection() -> Result<DatabaseConnection, sea_orm::DbErr> {
+pub async fn establish_connection() -> Result<DatabaseConnection, DbErr> {
     let database_url = env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set in .env");
+        .expect("DATABASE_URL must be set in .env file");
     let db = Database::connect(&database_url).await?;
     Ok(db)
 }
