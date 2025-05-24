@@ -42,7 +42,7 @@ export function useNews(page = 1) {
         })
         setError(null)
       } catch (err) {
-        setError(err as Error)
+        //setError(err as Error)
 
         if (page === 1) {
           setData({

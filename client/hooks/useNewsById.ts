@@ -24,7 +24,7 @@ export function useNewsById(id: string) {
 				setData(response.data)
 				setError(null)
 			} catch (err) {
-				setError(err as Error)
+				//setError(err as Error)
 
 				// Фейковые данные для демонстрации
 				const mockArticles = [
