@@ -9,13 +9,12 @@ use dotenv::dotenv;
 use env_logger;
 use opml::{OPML, Outline};
 use rand::prelude::*;
-use reqwest;
+use reqwest::Client;
 use chrono::{DateTime, Utc};
-use chatgpt::{prelude::ChatGPT, types::CompletionResponse};
+use serde_json;
 use tokio::time::sleep;
 use log::{error, info};
 
-// Struct to hold application state
 #[derive(Clone)]
 struct AppState {
     db: Arc<DatabaseConnection>,
@@ -41,7 +40,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
     env_logger::init();
 
-    // Create the database connection and wrap it in AppState
     let db = Arc::new(db::establish_connection().await?);
     let app_state = AppState { db };
 
@@ -66,12 +64,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .app_data(web::Data::new(app_state.clone())) // Store AppState in app state
             .service(get_all_posts)
     })
-				.bind("127.0.0.1:8081")?
-				.run();
+    .bind("127.0.0.1:8081")?
+    .run();
 
     let server_task = tokio::spawn(server);
 
-    // Run both tasks and handle server result only
     let (_, server_result) = tokio::try_join!(rss_task, server_task)?;
     server_result?;
 
@@ -79,7 +76,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn load_rss_urls_from_opml(opml_file_path: &str) -> Result<Vec<String>, Box<dyn Error>> {
-    let opml_content = fs::read_to_string(opml_file_path)?;
+    let opml_content = match fs::read_to_string(opml_file_path) {
+        Ok(content) => content,
+        Err(e) => {
+            error!("Failed to read {}: {}. Returning empty RSS list.", opml_file_path, e);
+            return Ok(Vec::new());
+        }
+    };
     let opml = OPML::from_str(&opml_content)?;
     let mut rss_urls = Vec::new();
     extract_urls_from_outline(&opml.body.outlines, &mut rss_urls);
@@ -98,18 +101,37 @@ fn extract_urls_from_outline(outlines: &[Outline], rss_urls: &mut Vec<String>) {
     }
 }
 
-// async fn chatgpt(url: String) -> Result<String, Box<dyn std::error::Error>> {
-//     let key = std::env::var("OPENAI").map_err(|_| "OPENAI environment variable not set")?;
-//     let prompt_template = std::env::var("CHATGPT_PROMPT")
-//         .unwrap_or("дай описание этой новости в пределах 400 символов: {}".to_string());
-//     let client = ChatGPT::new(key)?;
-		
-//     let response: CompletionResponse = client
-//         .send_message(format!("{}", prompt_template.replace("{}", &url)))
-//         .await?;
-//     info!("ChatGPT response for URL {}: {}", url, &response.message().content);
-//     Ok(response.message().content.clone())
-// }
+async fn chatgpt(url: String) -> Result<String, Box<dyn std::error::Error>> {
+    let key = std::env::var("OPENAI").map_err(|_| "OPENAI environment variable not set")?;
+    let prompt_template = std::env::var("CHATGPT_PROMPT")
+        .unwrap_or("дай описание этой новости в пределах 400 символов: {}".to_string());
+    let prompt = format!("{}", prompt_template.replace("{}", &url));
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post("https://api.aimlapi.com/chat/completions")
+        .header("Authorization", format!("Bearer {}", key))
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 8024
+        }))
+        .send()
+        .await?;
+
+    if response.status().is_success() {
+        let response_json = response.json::<serde_json::Value>().await?;
+        let content = response_json["choices"][0]["message"]["content"]
+            .as_str()
+            .ok_or("Failed to parse response content")?
+            .to_string();
+        info!("ChatGPT response for URL {}: {}", url, &content);
+        Ok(content)
+    } else {
+        Err(format!("API request failed with status: {}", response.status()).into())
+    }
+}
 
 async fn insert_seen_post(db: &DatabaseConnection, link: &str, title: &str, description: &str) -> Result<(), sea_orm::DbErr> {
     let post = models::ActiveModel {
@@ -139,10 +161,9 @@ async fn fetch_and_store_rss_updates(
             if exists.is_none() {
                 let link = item_link.to_string();
                 let title = item.title().unwrap_or("No Title").to_string();
-                // let description = chatgpt(link.clone()).await?;
-								let description = format!("{}", link.clone());
+                let description = chatgpt(link.clone()).await?;
                 insert_seen_post(db, &link, &title, &description).await?;
-                sleep(Duration::from_secs(30)).await;
+                sleep(Duration::from_secs(900)).await;
             }
         }
     }
