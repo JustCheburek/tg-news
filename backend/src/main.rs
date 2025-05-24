@@ -141,7 +141,7 @@ async fn fetch_and_store_rss_updates(
                 // let description = chatgpt(link.clone()).await?;
 								let description = "123";
                 insert_seen_post(db, &link, &title, &description).await?;
-                sleep(Duration::from_secs(std::env::var("PARSING_INTERVAL_SECS").unwrap_or(900))).await;
+                sleep(Duration::from_secs(30)).await;
             }
         }
     }
