@@ -4,13 +4,12 @@ import { useState, useEffect } from "react"
 import { api } from "@/lib/api"
 
 interface Article {
-  id: string
+
+  id: number
+  link: string
   title: string
-  lead: string
-  content: string
-  date: string
-  readTime: number
-  image: string
+  description: string
+  created_at: string
 }
 
 interface NewsResponse {
