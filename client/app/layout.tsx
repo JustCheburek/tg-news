@@ -9,7 +9,7 @@ import {ThemeProvider} from "@/components/theme-provider"
 const inter = Inter({subsets: ["latin", "cyrillic"]})
 
 export const metadata: Metadata = {
-	title: "EconoNews - Экономические новости",
+	title: "OnlyCoins - Экономические новости",
 	description: "Лента экономических новостей из Telegram-каналов",
 }
 
